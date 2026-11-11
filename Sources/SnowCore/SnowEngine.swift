@@ -9,11 +9,13 @@ public struct Particle: Sendable {
     public var x: Double, y: Double, vx: Double, vy: Double
     public var radius: Double, opacity: Double, phase: Double, age: Double
     public var debris: Bool
+    public var background: Bool
     public init(x: Double, y: Double, vx: Double = 0, vy: Double = 16,
                 radius: Double = 1, opacity: Double = 0.8, phase: Double = 0,
-                age: Double = 0, debris: Bool = false) {
+                age: Double = 0, debris: Bool = false, background: Bool = false) {
         self.x = x; self.y = y; self.vx = vx; self.vy = vy; self.radius = radius
         self.opacity = opacity; self.phase = phase; self.age = age; self.debris = debris
+        self.background = background
     }
 }
 
@@ -77,7 +79,7 @@ public final class SnowEngine {
         guard particles.count < particleLimit else { return }
         particles.append(Particle(x: random() * width, y: y, vx: random() * 3 - 1.5,
             vy: 11 + random() * 12, radius: 0.55 + random() * 0.85,
-            opacity: 0.32 + random() * 0.56, phase: random() * .pi * 2))
+            opacity: 0.32 + random() * 0.56, phase: random() * .pi * 2, background: random() < 0.42))
     }
     public func addParticle(_ particle: Particle) {
         if particles.count < particleLimit { particles.append(particle) }
@@ -154,11 +156,13 @@ public final class SnowEngine {
             if accumulationEnabled, p.vy > 0 {
                 for pile in surfaceOrder {
                     let surface = pile.surface
+                    // A separate depth layer keeps snow flowing behind windows to the Dock.
+                    if p.background && !p.debris && surface.kind == .window { continue }
                     guard surface.supports(p.x), p.x >= surface.x, p.x <= surface.x + surface.width else { continue }
                     let top = surface.y - pile.height(at: p.x)
                     if oldY + p.radius <= top + 2, p.y + p.radius >= top,
-                       !blockers.contains(where: { $0.contains(x: p.x, y: top - 1) }),
-                       !surface.occluders.contains(where: { $0.contains(x: p.x, y: top - 0.1) }) {
+                       (surface.kind == .dock || !blockers.contains(where: { $0.contains(x: p.x, y: top - 1) })),
+                       (surface.kind == .dock || !surface.occluders.contains(where: { $0.contains(x: p.x, y: top - 0.1) })) {
                         deposit(pile, at: p.x, volume: p.debris ? p.radius * 4.2 : p.radius * 5.5)
                         caught = true; break
                     }

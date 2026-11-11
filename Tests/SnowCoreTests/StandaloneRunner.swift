@@ -22,7 +22,8 @@
         tests.testOccluderDoesNotRemoveTheWholeSnowColumn(); print("PASS testOccluderDoesNotRemoveTheWholeSnowColumn")
         tests.testCoveredBankTopDoesNotCollectVisibleSnow(); print("PASS testCoveredBankTopDoesNotCollectVisibleSnow")
         tests.testShrinkingWindowRemovesSupportBeyondNewRightEdge(); print("PASS testShrinkingWindowRemovesSupportBeyondNewRightEdge")
-        print("All 20 physics checks passed.")
+        tests.testBackgroundStreamReachesDockBehindWindow(); print("PASS testBackgroundStreamReachesDockBehindWindow")
+        print("All 21 physics checks passed.")
     }
 }
 #endif

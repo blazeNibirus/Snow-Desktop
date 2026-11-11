@@ -182,4 +182,16 @@ final class SnowEngineTests: XCTestCase {
         XCTAssertTrue(e.particles.contains { $0.debris && $0.x > 170 })
     }
 
+    func testBackgroundStreamReachesDockBehindWindow() {
+        let e = SnowEngine(width: 400, height: 300)
+        e.updateSurfaces([
+            SurfaceDescriptor(id: 1, x: 0, y: 100, width: 400),
+            SurfaceDescriptor(id: 2, x: 100, y: 260, width: 200, kind: .dock)
+        ], elapsed: 0.1)
+        e.addParticle(Particle(x: 200, y: 95, vy: 60, background: true))
+        run(e, seconds: 3)
+        XCTAssertEqual(e.piles[1]!.volume, 0)
+        XCTAssertGreaterThan(e.piles[2]!.volume, 0)
+    }
+
 }

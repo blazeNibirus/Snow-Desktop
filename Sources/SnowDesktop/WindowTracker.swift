@@ -105,7 +105,10 @@ final class WindowTracker {
     }
     private func dockRects() -> [CGRect] {
         let now = CACurrentMediaTime()
-        guard !axReadInFlight, now - lastAXRead >= (dockAXError == AXError.apiDisabled.rawValue ? 2.0 : 1.0 / 24) else { return lastDockRects }
+        let mouse = NSEvent.mouseLocation
+        let nearDock = NSScreen.screens.contains { s in s.frame.contains(mouse) && mouse.y < s.frame.minY + 160 }
+        let interval = dockAXError == AXError.apiDisabled.rawValue ? 2.0 : (nearDock ? 1.0 / 24 : 0.25)
+        guard !axReadInFlight, now - lastAXRead >= interval else { return lastDockRects }
         lastAXRead = now; axReadInFlight = true
         let frames = NSScreen.screens.map { cgFrame($0) }
         dockQueue.async { [weak self] in
