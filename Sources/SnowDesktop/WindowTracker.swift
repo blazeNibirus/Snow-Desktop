@@ -58,7 +58,14 @@ final class WindowTracker {
             for window in windows where window.rect.intersects(frame) {
                 let r = window.rect
                 let fullscreen = local(r).covers(local(work)) || local(r).covers(local(frame))
-                if fullscreen { blockers.append(local(r)) }
+                if fullscreen {
+                    var visibleParts = [local(r)]
+                    for cover in occluders {
+                        let front = local(cover.insetBy(dx: 0, dy: -14))
+                        visibleParts = visibleParts.flatMap { $0.subtracting(front) }
+                    }
+                    blockers.append(contentsOf: visibleParts)
+                }
                 if !fullscreen, preferences.onWindows, r.minY >= frame.minY + 1, r.minY < frame.maxY {
                     var spans = [Span(max(r.minX + 7, frame.minX) - frame.minX,
                                       min(r.maxX - 7, frame.maxX) - frame.minX)]

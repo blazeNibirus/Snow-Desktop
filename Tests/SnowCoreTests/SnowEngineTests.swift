@@ -26,6 +26,14 @@ final class SnowEngineTests: XCTestCase {
         XCTAssertTrue(SnowRect(x: 0, y: 28, width: 1440, height: 802).covers(work))
         XCTAssertFalse(SnowRect(x: 30, y: 80, width: 800, height: 500).covers(work))
     }
+    func testFullscreenMaskPreservesForegroundWindow() {
+        let full = SnowRect(x: 0, y: 0, width: 400, height: 300)
+        let front = SnowRect(x: 100, y: 80, width: 200, height: 150)
+        let parts = full.subtracting(front)
+        XCTAssertFalse(parts.contains { $0.contains(x: 200, y: 150) })
+        XCTAssertTrue(parts.contains { $0.contains(x: 10, y: 10) })
+        XCTAssertEqual(parts.reduce(0) { $0 + $1.width * $1.height }, 90000)
+    }
     func testSnowLandsOnlyOnShelf() {
         let engine = SnowEngine(width: 400, height: 300)
         engine.updateSurfaces([SurfaceDescriptor(id: 1, x: 100, y: 120, width: 200)], elapsed: 0.1)

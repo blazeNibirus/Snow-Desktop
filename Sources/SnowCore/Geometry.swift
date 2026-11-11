@@ -24,6 +24,16 @@ public struct SnowRect: Equatable, Sendable {
     public func contains(x px: Double, y py: Double) -> Bool {
         px >= x && px <= right && py >= y && py <= bottom
     }
+    public func subtracting(_ other: SnowRect) -> [SnowRect] {
+        let left = max(x, other.x), top = max(y, other.y)
+        let r = min(right, other.right), b = min(bottom, other.bottom)
+        guard r > left, b > top else { return [self] }
+        return [SnowRect(x: x, y: y, width: width, height: top - y),
+                SnowRect(x: x, y: b, width: width, height: bottom - b),
+                SnowRect(x: x, y: top, width: left - x, height: b - top),
+                SnowRect(x: r, y: top, width: right - r, height: b - top)]
+            .filter { $0.width > 0 && $0.height > 0 }
+    }
     public func covers(_ other: SnowRect, tolerance: Double = 5) -> Bool {
         x <= other.x + tolerance && y <= other.y + tolerance &&
         right >= other.right - tolerance && bottom >= other.bottom - tolerance

@@ -4,6 +4,7 @@
         let tests = SnowEngineTests()
         tests.testVisibleIntervalsSubtractFrontWindows(); print("PASS testVisibleIntervalsSubtractFrontWindows")
         tests.testMaximizedWindowCoversWorkArea(); print("PASS testMaximizedWindowCoversWorkArea")
+        tests.testFullscreenMaskPreservesForegroundWindow(); print("PASS testFullscreenMaskPreservesForegroundWindow")
         tests.testSnowLandsOnlyOnShelf(); print("PASS testSnowLandsOnlyOnShelf")
         tests.testDockGapsHaveNoFloor(); print("PASS testDockGapsHaveNoFloor")
         tests.testHiddenPortionCannotCollectSnow(); print("PASS testHiddenPortionCannotCollectSnow")
@@ -14,7 +15,7 @@
         tests.testParticlePoolAndWakeCatchupAreBounded(); print("PASS testParticlePoolAndWakeCatchupAreBounded")
         tests.testPassiveSaverHasNoAccumulation(); print("PASS testPassiveSaverHasNoAccumulation")
         tests.testFullscreenBlockerPreventsAccumulation(); print("PASS testFullscreenBlockerPreventsAccumulation")
-        print("All 12 physics checks passed.")
+        print("All 13 physics checks passed.")
     }
 }
 #endif
