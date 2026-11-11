@@ -31,7 +31,13 @@ public final class SnowPile {
     }
     public func height(at x: Double) -> Double {
         guard x >= surface.x, x <= surface.x + surface.width else { return 0 }
-        return heights[min(heights.count - 1, max(0, Int((x - surface.x) / cellWidth)))]
+        let localX = x - surface.x
+        let sample = max(0, min(Double(heights.count - 1), localX / cellWidth - 0.5))
+        let a = Int(sample), b = min(heights.count - 1, a + 1), f = sample - Double(a)
+        let raw = heights[a] * (1 - f) + heights[b] * f
+        return raw * SnowBankProfile.edgeFactor(x: localX, width: surface.width,
+            radius: surface.kind == .window ? 18 : 12,
+            roundLeft: surface.roundLeft, roundRight: surface.roundRight)
     }
 }
 
@@ -151,7 +157,8 @@ public final class SnowEngine {
                     guard surface.supports(p.x), p.x >= surface.x, p.x <= surface.x + surface.width else { continue }
                     let top = surface.y - pile.height(at: p.x)
                     if oldY + p.radius <= top + 2, p.y + p.radius >= top,
-                       !blockers.contains(where: { $0.contains(x: p.x, y: top - 1) }) {
+                       !blockers.contains(where: { $0.contains(x: p.x, y: top - 1) }),
+                       !surface.occluders.contains(where: { $0.contains(x: p.x, y: top - 0.1) }) {
                         deposit(pile, at: p.x, volume: p.debris ? p.radius * 4.2 : p.radius * 5.5)
                         caught = true; break
                     }

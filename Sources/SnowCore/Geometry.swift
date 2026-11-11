@@ -46,11 +46,16 @@ public struct SurfaceDescriptor: Sendable {
     public var id: UInt64
     public var x: Double, y: Double, width: Double
     public var visible: [Span]
+    public var occluders: [SnowRect]
     public var kind: SurfaceKind
+    public var roundLeft: Bool
+    public var roundRight: Bool
     public init(id: UInt64, x: Double, y: Double, width: Double,
-                visible: [Span]? = nil, kind: SurfaceKind = .window) {
+                visible: [Span]? = nil, kind: SurfaceKind = .window,
+                roundLeft: Bool = true, roundRight: Bool = true, occluders: [SnowRect] = []) {
         self.id = id; self.x = x; self.y = y; self.width = width
         self.visible = visible ?? [Span(x, x + width)]; self.kind = kind
+        self.roundLeft = roundLeft; self.roundRight = roundRight; self.occluders = occluders
     }
     public func supports(_ worldX: Double) -> Bool {
         visible.contains { $0.contains(worldX) }

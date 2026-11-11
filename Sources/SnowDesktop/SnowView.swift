@@ -9,7 +9,13 @@ final class SnowView: NSView {
     private var link: CADisplayLink?
     private var lastTime: CFTimeInterval = 0
     private var sprites: [CALayer] = []
+    private let particleLayer = CALayer()
+    var particleOccluders: [SnowRect] = []
     private var bankLayers: [UInt64: CAShapeLayer] = [:]
+    private var bankMaskRects: [UInt64: [SnowRect]] = [:]
+    private var bankMaskSizes: [UInt64: CGSize] = [:]
+    private var lastParticleOccluders: [SnowRect]?
+    private var lastMaskBounds = CGRect.zero
     private var fallingImage: CGImage?
     private var debrisImage: CGImage?
     private var appearanceKey = ""
@@ -26,6 +32,7 @@ final class SnowView: NSView {
         layer?.backgroundColor = preview ? NSColor(calibratedRed: 0.10, green: 0.15, blue: 0.22, alpha: 1).cgColor : nil
         layer?.masksToBounds = true
         if preview { layer?.cornerRadius = 12 }
+        layer?.addSublayer(particleLayer)
         updateAppearance()
     }
     required init?(coder: NSCoder) { nil }
@@ -70,27 +77,25 @@ final class SnowView: NSView {
         context.fillEllipse(in: CGRect(x: 1, y: 1, width: 10, height: 10))
         return context.makeImage()
     }
-    func updateVisibilityMask() {
-        guard let layer else { return }
-        guard !engine.blockers.isEmpty else { layer.mask = nil; return }
-        var visible = [bounds]
-        for b in engine.blockers {
-            let cut = CGRect(x: b.x - 1, y: b.y - 1, width: b.width + 2, height: b.height + 2)
-            visible = visible.flatMap { rect -> [CGRect] in
-                let hit = rect.intersection(cut)
-                guard !hit.isNull else { return [rect] }
-                return [CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: hit.minY - rect.minY),
-                        CGRect(x: rect.minX, y: hit.maxY, width: rect.width, height: rect.maxY - hit.maxY),
-                        CGRect(x: rect.minX, y: hit.minY, width: hit.minX - rect.minX, height: hit.height),
-                        CGRect(x: hit.maxX, y: hit.minY, width: rect.maxX - hit.maxX, height: hit.height)]
-                    .filter { $0.width > 0 && $0.height > 0 }
-            }
-        }
+    private func visibilityMask(excluding cuts: [SnowRect], in region: CGRect? = nil) -> CAShapeLayer? {
+        guard !cuts.isEmpty else { return nil }
+        let box = region ?? bounds
+        var visible = [SnowRect(x: box.minX, y: box.minY, width: box.width, height: box.height)]
+        for cut in cuts { visible = visible.flatMap { $0.subtracting(cut) } }
         let mask = CAShapeLayer(), path = CGMutablePath()
-        visible.forEach { path.addRect($0) }
+        visible.forEach { path.addRect(CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)) }
         mask.path = path; mask.fillColor = NSColor.white.cgColor
+        return mask
+    }
+    func updateVisibilityMask() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        layer.mask = mask
+        // Piles remain above the window edge; falling flakes are behind every window.
+        layer?.mask = nil
+        particleLayer.frame = bounds
+        if particleOccluders != lastParticleOccluders || bounds != lastMaskBounds {
+            particleLayer.mask = visibilityMask(excluding: particleOccluders)
+            lastParticleOccluders = particleOccluders; lastMaskBounds = bounds
+        }
         CATransaction.commit()
     }
     @objc private func frameTick(_ sender: CADisplayLink) {
@@ -110,7 +115,7 @@ final class SnowView: NSView {
         while sprites.count < particles.count {
             let sprite = CALayer()
             sprite.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull(), "opacity": NSNull(), "hidden": NSNull()]
-            root.addSublayer(sprite); sprites.append(sprite)
+            particleLayer.addSublayer(sprite); sprites.append(sprite)
         }
         for i in sprites.indices {
             let sprite = sprites[i]
@@ -127,17 +132,27 @@ final class SnowView: NSView {
         // Snowbanks deform slowly; particle positions still update at the display rate.
         if frameCounter % 2 == 0 {
             let ids = Set(engine.piles.keys)
-            for id in Array(bankLayers.keys) where !ids.contains(id) { bankLayers.removeValue(forKey: id)?.removeFromSuperlayer() }
+            for id in Array(bankLayers.keys) where !ids.contains(id) {
+                bankLayers.removeValue(forKey: id)?.removeFromSuperlayer()
+                bankMaskRects.removeValue(forKey: id); bankMaskSizes.removeValue(forKey: id)
+            }
             for (id, pile) in engine.piles {
                 let bank: CAShapeLayer
                 if let existing = bankLayers[id] { bank = existing }
                 else {
-                    bank = CAShapeLayer(); bank.fillColor = Settings.shared.value.settled.color.cgColor
+                    bank = CAShapeLayer(); bank.masksToBounds = true; bank.fillColor = Settings.shared.value.settled.color.cgColor
                     root.addSublayer(bank); bankLayers[id] = bank
                 }
                 let path = CGMutablePath(), surface = pile.surface
                 bank.frame = CGRect(x: surface.x, y: surface.y - engine.maxDepth - 1,
                                     width: surface.width, height: engine.maxDepth + 2)
+                let localOccluders = surface.occluders.map { r in
+                    SnowRect(x: r.x - bank.frame.minX, y: r.y - bank.frame.minY, width: r.width, height: r.height)
+                }
+                if bankMaskRects[id] != localOccluders || bankMaskSizes[id] != bank.bounds.size {
+                    bank.mask = visibilityMask(excluding: localOccluders, in: bank.bounds)
+                    bankMaskRects[id] = localOccluders; bankMaskSizes[id] = bank.bounds.size
+                }
                 let base = engine.maxDepth + 1
                 for span in surface.visible {
                     let left = max(0, span.lower - surface.x), right = min(surface.width, span.upper - surface.x)
@@ -146,13 +161,12 @@ final class SnowView: NSView {
                     let last = min(pile.heights.count - 1, Int(right / pile.cellWidth))
                     guard last >= first else { continue }
                     path.move(to: CGPoint(x: left, y: base))
-                    path.addLine(to: CGPoint(x: left, y: base - pile.heights[first]))
+                    path.addLine(to: CGPoint(x: left, y: base - pile.height(at: surface.x + left)))
                     for i in first...last {
                         let x = min(right, (Double(i) + 0.5) * pile.cellWidth)
-                        let nextHeight = i + 1 < pile.heights.count ? pile.heights[i + 1] : pile.heights[i]
-                        path.addQuadCurve(to: CGPoint(x: min(right, (Double(i) + 1) * pile.cellWidth),
-                                                     y: base - (pile.heights[i] + nextHeight) / 2),
-                                          control: CGPoint(x: x, y: base - pile.heights[i]))
+                        let endX = min(right, (Double(i) + 1) * pile.cellWidth)
+                        path.addQuadCurve(to: CGPoint(x: endX, y: base - pile.height(at: surface.x + endX)),
+                                          control: CGPoint(x: x, y: base - pile.height(at: surface.x + x)))
                     }
                     path.addLine(to: CGPoint(x: right, y: base)); path.closeSubpath()
                 }

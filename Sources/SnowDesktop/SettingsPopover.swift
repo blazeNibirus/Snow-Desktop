@@ -26,6 +26,8 @@ final class SettingsPopover: NSViewController {
     private var colorTarget = 0
     private var permissionRow: NSStackView!
     private var statusLabel: NSTextField!
+    private var dockStateLabel: NSTextField!
+    private var stateTimer: Timer?
     private var loginSwitch: NSSwitch!
     private var saverSwitch: NSSwitch!
     private var dockMode: NSSegmentedControl!
@@ -119,6 +121,8 @@ final class SettingsPopover: NSViewController {
         let permissionText = label("Для точных границ и увеличения Dock нужен «Универсальный доступ».", size: 10, secondary: true)
         let grant = ActionButton(title: "Разрешить…") { [weak self] in self?.tracker.requestDockAccess() }
         permissionRow = row([permissionText, grant]); stack.addArrangedSubview(permissionRow)
+        dockStateLabel = label("", size: 10, secondary: true)
+        stack.addArrangedSubview(dockStateLabel)
         stack.addArrangedSubview(separator())
         let target = NSSegmentedControl(labels: ["Снежинки", "Сугробы"], trackingMode: .selectOne, target: self, action: #selector(colorTargetChanged(_:)))
         target.selectedSegment = 0; target.controlSize = .small
@@ -161,12 +165,22 @@ final class SettingsPopover: NSViewController {
     }
     override func viewWillAppear() {
         super.viewWillAppear()
-        permissionRow.isHidden = tracker.hasDockAccess || !Settings.shared.value.onDock
+        refreshDockStatus()
+        stateTimer?.invalidate()
+        stateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refreshDockStatus() }
         loginSwitch.state = Settings.shared.startsAtLogin ? .on : .off
         previewView.applyPreferences(); previewView.start()
         statusLabel.stringValue = "Память: \(Diagnostics.memoryMB()) МБ · бюджет 0,5%: \(Diagnostics.budgetMB) МБ"
     }
-    override func viewDidDisappear() { super.viewDidDisappear(); previewView.stop() }
+    override func viewDidDisappear() {
+        super.viewDidDisappear(); previewView.stop(); stateTimer?.invalidate(); stateTimer = nil
+    }
+    private func refreshDockStatus() {
+        let p = Settings.shared.value
+        permissionRow.isHidden = tracker.hasDockAccess || !p.onDock || p.fullWidthDock
+        dockStateLabel.isHidden = !p.onDock
+        dockStateLabel.stringValue = p.fullWidthDock ? "Вся ширина: системная высота Dock, без запроса доступа." : tracker.dockStatus
+    }
     private func updateLabels() {
         let p = Settings.shared.value
         intensityLabel.stringValue = ["Лёгкий", "Умеренный", "Густой"][p.intensity]
@@ -186,7 +200,9 @@ final class SettingsPopover: NSViewController {
         updateLabels()
     }
     @objc private func speedChanged() { Settings.shared.value.speed = speedSlider.doubleValue; updateLabels() }
-    @objc private func dockModeChanged() { Settings.shared.value.fullWidthDock = dockMode.selectedSegment == 1 }
+    @objc private func dockModeChanged() {
+        Settings.shared.value.fullWidthDock = dockMode.selectedSegment == 1; refreshDockStatus()
+    }
     @objc private func colorTargetChanged(_ sender: NSSegmentedControl) {
         colorTarget = sender.selectedSegment
         let appearance = colorTarget == 0 ? Settings.shared.value.falling : Settings.shared.value.settled
@@ -205,8 +221,8 @@ final class SettingsPopover: NSViewController {
         case "windows": Settings.shared.value.onWindows = enabled
         case "dock":
             Settings.shared.value.onDock = enabled
-            permissionRow.isHidden = tracker.hasDockAccess || !enabled
-            dockMode.isEnabled = enabled
+            refreshDockStatus(); dockMode.isEnabled = enabled
+            if enabled && !tracker.hasDockAccess && !Settings.shared.value.fullWidthDock { tracker.requestDockAccess() }
         case "login":
             do { try Settings.shared.setLogin(enabled) }
             catch {

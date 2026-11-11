@@ -5,8 +5,8 @@
 <key>CFBundleIdentifier</key><string>com.blazenibirus.SnowDesktop.Saver</string>
 <key>CFBundleExecutable</key><string>SnowDesktopSaver</string>
 <key>CFBundlePackageType</key><string>BNDL</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>0.1.1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>NSPrincipalClass</key><string>SnowDesktopSaverView</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict></plist>

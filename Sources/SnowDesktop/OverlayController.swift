@@ -81,13 +81,14 @@ final class OverlayController {
     private func pollGeometry() {
         let now = CACurrentMediaTime()
         let dragging = NSEvent.pressedMouseButtons & 1 != 0
-        let interval = dragging ? 1.0 / 30 : 1.0 / 10
+        let interval = dragging ? 1.0 / Double(NSScreen.main?.maximumFramesPerSecond ?? 60) : 1.0 / 10
         guard now - lastGeometry >= interval else { return }
         let elapsed = lastGeometry == 0 ? interval : now - lastGeometry
         lastGeometry = now
         let geometry = tracker.snapshot(preferences: Settings.shared.value)
         for (view, info) in zip(views, geometry) {
             view.engine.blockers = info.blockers
+            view.particleOccluders = info.windowAreas
             view.engine.updateSurfaces(info.surfaces, elapsed: elapsed)
             view.updateVisibilityMask()
         }
@@ -96,6 +97,8 @@ final class OverlayController {
         views.enumerated().map { index, view in
             ["display": index, "particles": view.engine.particles.count,
              "surfaces": view.engine.piles.count,
+             "dockSurfaces": view.engine.piles.values.filter { $0.surface.kind == .dock }.count,
+             "dockSnowVolume": view.engine.piles.values.filter { $0.surface.kind == .dock }.reduce(0) { $0 + $1.volume },
              "snowVolume": view.engine.piles.values.reduce(0) { $0 + $1.volume },
              "fullscreenBlockers": view.engine.blockers.count]
         }

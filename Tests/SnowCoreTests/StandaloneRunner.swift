@@ -15,7 +15,14 @@
         tests.testParticlePoolAndWakeCatchupAreBounded(); print("PASS testParticlePoolAndWakeCatchupAreBounded")
         tests.testPassiveSaverHasNoAccumulation(); print("PASS testPassiveSaverHasNoAccumulation")
         tests.testFullscreenBlockerPreventsAccumulation(); print("PASS testFullscreenBlockerPreventsAccumulation")
-        print("All 13 physics checks passed.")
+        tests.testSnowCapsAreRoundedAtBothPhysicalEdges(); print("PASS testSnowCapsAreRoundedAtBothPhysicalEdges")
+        tests.testFullWidthDockWorksWithoutAccessibilityIcons(); print("PASS testFullWidthDockWorksWithoutAccessibilityIcons")
+        tests.testDockOnlyModeHasFiniteBoundsAndJoinedInnerEdges(); print("PASS testDockOnlyModeHasFiniteBoundsAndJoinedInnerEdges")
+        tests.testClosedWindowSnowCanLandOnDock(); print("PASS testClosedWindowSnowCanLandOnDock")
+        tests.testOccluderDoesNotRemoveTheWholeSnowColumn(); print("PASS testOccluderDoesNotRemoveTheWholeSnowColumn")
+        tests.testCoveredBankTopDoesNotCollectVisibleSnow(); print("PASS testCoveredBankTopDoesNotCollectVisibleSnow")
+        tests.testShrinkingWindowRemovesSupportBeyondNewRightEdge(); print("PASS testShrinkingWindowRemovesSupportBeyondNewRightEdge")
+        print("All 20 physics checks passed.")
     }
 }
 #endif

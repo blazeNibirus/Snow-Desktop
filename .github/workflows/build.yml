@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Physics checks
         run: ./Scripts/test-physics.sh
+      - name: Rendering regression checks
+        run: ./Scripts/test-rendering.sh
       - name: XCTest
         run: swift test
       - name: Universal app and screen saver

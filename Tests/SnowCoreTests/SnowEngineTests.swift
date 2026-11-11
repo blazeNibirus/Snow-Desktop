@@ -118,4 +118,68 @@ final class SnowEngineTests: XCTestCase {
         run(engine, seconds: 0.4)
         XCTAssertEqual(engine.piles[1]!.volume, 0)
     }
+    func testSnowCapsAreRoundedAtBothPhysicalEdges() {
+        XCTAssertEqual(SnowBankProfile.edgeFactor(x: 0, width: 200), 0)
+        XCTAssertEqual(SnowBankProfile.edgeFactor(x: 200, width: 200), 0)
+        XCTAssertEqual(SnowBankProfile.edgeFactor(x: 100, width: 200), 1)
+        XCTAssertLessThan(SnowBankProfile.edgeFactor(x: 0.01, width: 200), 0.00001)
+        XCTAssertEqual(SnowBankProfile.edgeFactor(x: 0, width: 200, roundLeft: false, roundRight: false), 1)
+    }
+    func testFullWidthDockWorksWithoutAccessibilityIcons() {
+        let shelves = DockLayout.surfaces(frame: SnowRect(x: 0, y: 0, width: 400, height: 300),
+            workArea: SnowRect(x: 0, y: 24, width: 400, height: 216), icons: [], fullWidth: true)
+        XCTAssertEqual(shelves.count, 1)
+        XCTAssertEqual(shelves[0].y, 240)
+        XCTAssertEqual(shelves[0].width, 400)
+    }
+    func testDockOnlyModeHasFiniteBoundsAndJoinedInnerEdges() {
+        let shelves = DockLayout.surfaces(frame: SnowRect(x: 0, y: 0, width: 400, height: 300),
+            workArea: SnowRect(x: 0, y: 24, width: 400, height: 216),
+            icons: [SnowRect(x: 120, y: 250, width: 40, height: 40),
+                    SnowRect(x: 170, y: 250, width: 40, height: 40)], fullWidth: false)
+        XCTAssertEqual(shelves.count, 2)
+        XCTAssertFalse(shelves.contains { $0.supports(10) || $0.supports(390) })
+        XCTAssertFalse(shelves[0].roundRight)
+        XCTAssertFalse(shelves[1].roundLeft)
+        XCTAssertEqual(shelves[0].x + shelves[0].width, shelves[1].x)
+    }
+    func testClosedWindowSnowCanLandOnDock() {
+        let e = SnowEngine(width: 400, height: 300)
+        let window = SurfaceDescriptor(id: 1, x: 100, y: 120, width: 200)
+        let dock = SurfaceDescriptor(id: 2, x: 100, y: 260, width: 200, kind: .dock)
+        e.updateSurfaces([window, dock], elapsed: 0.1)
+        for _ in 0..<20 { e.addParticle(Particle(x: 200, y: 110, vy: 60)) }
+        run(e, seconds: 0.3)
+        XCTAssertGreaterThan(e.piles[1]!.volume, 0)
+        e.updateSurfaces([dock], elapsed: 0.1)
+        run(e, seconds: 2)
+        XCTAssertGreaterThan(e.piles[2]!.volume, 0)
+    }
+    func testOccluderDoesNotRemoveTheWholeSnowColumn() {
+        let bank = SnowRect(x: 0, y: 100, width: 100, height: 14)
+        let front = SnowRect(x: 0, y: 80, width: 40, height: 25)
+        let visible = bank.subtracting(front)
+        XCTAssertTrue(visible.contains { $0.contains(x: 20, y: 110) })
+        XCTAssertFalse(visible.contains { $0.contains(x: 20, y: 102) })
+        XCTAssertTrue(visible.contains { $0.contains(x: 60, y: 102) })
+    }
+    func testCoveredBankTopDoesNotCollectVisibleSnow() {
+        let e = SnowEngine(width: 400, height: 300)
+        e.updateSurfaces([SurfaceDescriptor(id: 1, x: 100, y: 120, width: 200,
+            occluders: [SnowRect(x: 100, y: 80, width: 200, height: 40)])], elapsed: 0.1)
+        e.addParticle(Particle(x: 200, y: 117, vy: 40))
+        run(e, seconds: 0.4)
+        XCTAssertEqual(e.piles[1]!.volume, 0)
+    }
+    func testShrinkingWindowRemovesSupportBeyondNewRightEdge() {
+        let e = SnowEngine(width: 400, height: 300)
+        e.updateSurfaces([SurfaceDescriptor(id: 1, x: 50, y: 120, width: 250)], elapsed: 0.1)
+        e.addParticle(Particle(x: 250, y: 117, vy: 40))
+        run(e, seconds: 0.2)
+        e.updateSurfaces([SurfaceDescriptor(id: 1, x: 50, y: 120, width: 120)], elapsed: 0.1)
+        XCTAssertFalse(e.piles[1]!.surface.supports(250))
+        XCTAssertEqual(e.piles[1]!.height(at: 250), 0)
+        XCTAssertTrue(e.particles.contains { $0.debris && $0.x > 170 })
+    }
+
 }

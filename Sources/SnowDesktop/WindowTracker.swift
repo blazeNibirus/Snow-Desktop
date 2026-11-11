@@ -7,6 +7,7 @@ struct DisplayGeometry {
     var workArea: CGRect
     var surfaces: [SurfaceDescriptor]
     var blockers: [SnowRect]
+    var windowAreas: [SnowRect]
 }
 
 final class WindowTracker {
@@ -17,11 +18,18 @@ final class WindowTracker {
     private var lastAXRead: CFTimeInterval = 0
     private var axReadInFlight = false
     private let dockQueue = DispatchQueue(label: "com.blazenibirus.SnowDesktop.DockGeometry", qos: .utility)
-    var hasDockAccess: Bool { AXIsProcessTrusted() }
+    private(set) var dockStatus = "Проверка доступа к Dock…"
+    private(set) var dockItemCount = 0
+    private(set) var dockAXError: Int32 = 0
+    var hasDockAccess: Bool { AXIsProcessTrusted() || dockItemCount > 0 }
 
     func requestDockAccess() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+        lastAXRead = 0
     }
     private func cgFrame(_ screen: NSScreen) -> CGRect {
         let mainHeight = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
@@ -43,10 +51,16 @@ final class WindowTracker {
                   let dict = w[kCGWindowBounds as String] as? [String: Any],
                   let rect = CGRect(dictionaryRepresentation: dict as CFDictionary), rect.width > 90, rect.height > 55,
                   let id = w[kCGWindowNumber as String] as? UInt64 else { continue }
+            // Accessory controls and transient duplicate render windows are not shelves.
+            if let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .prohibited { continue }
+            if windows.contains(where: { $0.rect == rect }) { continue }
             windows.append((id, rect))
             if windows.count == 96 { break }
         }
         let dock = preferences.onDock ? dockRects() : []
+        let dockDomain = "com.apple.dock" as CFString
+        let bottomDock = (CFPreferencesCopyAppValue("orientation" as CFString, dockDomain) as? String ?? "bottom") == "bottom"
+        let autoHidden = (CFPreferencesCopyAppValue("autohide" as CFString, dockDomain) as? Bool) ?? false
         return NSScreen.screens.map { screen in
             let frame = cgFrame(screen), work = workFrame(screen)
             func local(_ rect: CGRect) -> SnowRect {
@@ -69,72 +83,66 @@ final class WindowTracker {
                 if !fullscreen, preferences.onWindows, r.minY >= frame.minY + 1, r.minY < frame.maxY {
                     var spans = [Span(max(r.minX + 7, frame.minX) - frame.minX,
                                       min(r.maxX - 7, frame.maxX) - frame.minX)]
-                    for cover in occluders where cover.minY < r.minY + 1 && cover.maxY > r.minY - 14 {
-                        spans = spans.flatMap { $0.subtracting(Span(cover.minX - frame.minX - 1, cover.maxX - frame.minX + 1)) }
+                    for cover in occluders where cover.minY <= r.minY && cover.maxY > r.minY {
+                        spans = spans.flatMap { $0.subtracting(Span(cover.minX - frame.minX, cover.maxX - frame.minX)) }
                     }
                     surfaces.append(SurfaceDescriptor(id: window.id, x: r.minX + 7 - frame.minX,
-                        y: r.minY - frame.minY, width: max(2, r.width - 14), visible: spans))
+                        y: r.minY - frame.minY, width: max(2, r.width - 14), visible: spans, occluders: occluders.map(local)))
                 }
                 occluders.append(r)
             }
-            let icons = dock.filter { $0.intersects(frame) }
-            if !icons.isEmpty {
-                let union = icons.reduce(CGRect.null) { $0.union($1) }
-                // Horizontal Dock only. Vertical Dock has no horizontal collecting shelf.
-                let isBottom = union.midY > frame.maxY - max(180, union.height * 2) && union.width > union.height * 1.8
-                if isBottom {
-                    let baseY = icons.map(\.minY).max()! - 5
-                    if preferences.fullWidthDock {
-                        surfaces.append(SurfaceDescriptor(id: UInt64.max - 1, x: 0, y: baseY - frame.minY,
-                                                           width: frame.width, kind: .dock))
-                    } else {
-                        // Each icon pushes the snow up during magnification. Flat gaps form the shelf.
-                        let left = max(frame.minX, union.minX - 9), right = min(frame.maxX, union.maxX + 9)
-                        let sorted = icons.sorted { $0.minX < $1.minX }
-                        for (index, icon) in sorted.enumerated() {
-                            let start = index == 0 ? left : (sorted[index - 1].maxX + icon.minX) / 2
-                            let end = index == sorted.count - 1 ? right : (icon.maxX + sorted[index + 1].minX) / 2
-                            surfaces.append(SurfaceDescriptor(id: UInt64.max - UInt64(index + 100),
-                                x: start - frame.minX, y: icon.minY - 5 - frame.minY,
-                                width: max(2, end - start), kind: .dock))
-                        }
+            if preferences.onDock {
+                let dockSurfaces = DockLayout.surfaces(frame: local(frame), workArea: local(work),
+                    icons: dock.map(local), fullWidth: preferences.fullWidthDock,
+                    bottomDock: bottomDock, autoHidden: autoHidden).map { shelf in
+                        var shelf = shelf; shelf.occluders = windows.map { local($0.rect) }; return shelf
                     }
-                }
+                surfaces.insert(contentsOf: dockSurfaces, at: 0)
             }
-            return DisplayGeometry(frame: frame, workArea: work, surfaces: surfaces, blockers: blockers)
+            return DisplayGeometry(frame: frame, workArea: work, surfaces: surfaces,
+                blockers: blockers, windowAreas: windows.map { local($0.rect) })
         }
     }
     private func dockRects() -> [CGRect] {
-        guard hasDockAccess else { lastDockRects = []; return [] }
         let now = CACurrentMediaTime()
-        guard !axReadInFlight, now - lastAXRead >= 1.0 / 24 else { return lastDockRects }
+        guard !axReadInFlight, now - lastAXRead >= (dockAXError == AXError.apiDisabled.rawValue ? 2.0 : 1.0 / 24) else { return lastDockRects }
         lastAXRead = now; axReadInFlight = true
         let frames = NSScreen.screens.map { cgFrame($0) }
         dockQueue.async { [weak self] in
             guard let self else { return }
-            let rects = self.readDockRects(screenFrames: frames)
+            let result = self.readDockRects(screenFrames: frames)
             DispatchQueue.main.async { [weak self] in
-                self?.lastDockRects = rects; self?.axReadInFlight = false
+                guard let self else { return }
+                self.lastDockRects = result.rects; self.axReadInFlight = false
+                self.dockItemCount = result.rects.count; self.dockAXError = result.error
+                if !result.rects.isEmpty { self.dockStatus = "Dock: точные границы, \(result.rects.count) значков" }
+                else if result.error == AXError.apiDisabled.rawValue {
+                    self.dockStatus = "macOS не допускает текущую сборку к Dock. После обновления перевыберите Snow Desktop в «Универсальном доступе»."
+                } else { self.dockStatus = "Dock пока не найден (AX: \(result.error)). Вся ширина работает по системной границе Dock." }
             }
         }
         return lastDockRects
     }
-    private func readDockRects(screenFrames: [CGRect]) -> [CGRect] {
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return [] }
+    private func readDockRects(screenFrames: [CGRect]) -> (rects: [CGRect], error: Int32) {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return ([], AXError.cannotComplete.rawValue) }
         if dockPID != app.processIdentifier {
             dockPID = app.processIdentifier; dockRoot = AXUIElementCreateApplication(dockPID)
             if let root = dockRoot { AXUIElementSetMessagingTimeout(root, 0.015) }
         }
-        guard let root = dockRoot else { return [] }
+        guard let root = dockRoot else { return ([], AXError.invalidUIElement.rawValue) }
         var result: [CGRect] = []
-        var remaining = 160
+        var rootError: Int32 = 0
+        var remaining = 256
         func read(_ item: AXUIElement, depth: Int) {
-            guard depth < 4, remaining > 0 else { return }
+            guard depth < 8, remaining > 0 else { return }
             remaining -= 1
             var roleValue: CFTypeRef?
             AXUIElementCopyAttributeValue(item, kAXRoleAttribute as CFString, &roleValue)
             let role = roleValue as? String ?? ""
-            if role == "AXDockItem" {
+            var subroleValue: CFTypeRef?
+            AXUIElementCopyAttributeValue(item, kAXSubroleAttribute as CFString, &subroleValue)
+            let subrole = subroleValue as? String ?? ""
+            if role == "AXDockItem" || subrole.hasSuffix("DockItem") {
                 var position: CFTypeRef?, size: CFTypeRef?
                 AXUIElementCopyAttributeValue(item, kAXPositionAttribute as CFString, &position)
                 AXUIElementCopyAttributeValue(item, kAXSizeAttribute as CFString, &size)
@@ -149,17 +157,19 @@ final class WindowTracker {
                 return
             }
             var children: CFTypeRef?
-            if AXUIElementCopyAttributeValue(item, kAXChildrenAttribute as CFString, &children) == .success,
-               let elements = children as? [AXUIElement] {
+            let error = AXUIElementCopyAttributeValue(item, kAXChildrenAttribute as CFString, &children)
+            if depth == 0 { rootError = error.rawValue }
+            if error == .success, let elements = children as? [AXUIElement] {
                 for child in elements { read(child, depth: depth + 1) }
             }
         }
         read(root, depth: 0)
         // An auto-hidden Dock has no onscreen shelf; do not create a bottom-screen floor.
-        return result.filter { rect in
+        let visible = result.filter { rect in
             screenFrames.contains { f in
                 rect.minY < f.maxY - 2 && rect.intersection(f).height > 8
             }
         }
+        return (visible, rootError)
     }
 }

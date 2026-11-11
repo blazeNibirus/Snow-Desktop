@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 let report: [String: Any] = ["memoryMB": Diagnostics.memoryMB(), "budgetMB": Diagnostics.budgetMB,
                     "displayHz": NSScreen.screens.map(\.maximumFramesPerSecond),
                     "dockAccess": self?.overlays.tracker.hasDockAccess ?? false,
+                    "dockItems": self?.overlays.tracker.dockItemCount ?? 0,
+                    "dockStatus": self?.overlays.tracker.dockStatus ?? "",
+                    "dockAXError": self?.overlays.tracker.dockAXError ?? 0,
                     "scene": self?.overlays.diagnosticSnapshot ?? []]
                 if let data = try? JSONSerialization.data(withJSONObject: report, options: .prettyPrinted) {
                     try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
