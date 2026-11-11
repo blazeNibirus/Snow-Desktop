@@ -1,0 +1,28 @@
+name: macOS build and physics
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Physics checks
+        run: ./Scripts/test-physics.sh
+      - name: XCTest
+        run: swift test
+      - name: Universal app and screen saver
+        run: SNOW_ARCH=universal ./Scripts/build-app.sh
+      - name: Screen saver load and render
+        run: |
+          xcrun clang -fobjc-arc Tools/SaverProbe.m -framework AppKit -framework ScreenSaver -o build/SaverProbe
+          build/SaverProbe "$PWD/build/Snow Desktop.app/Contents/Resources/Snow Desktop.saver" "$PWD/build/SaverPreview.png"
+      - name: Package
+        run: ditto -c -k --sequesterRsrc --keepParent "build/Snow Desktop.app" build/Snow-Desktop-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Snow-Desktop-macOS
+          path: build/Snow-Desktop-macOS.zip
